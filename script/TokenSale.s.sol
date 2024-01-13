@@ -11,9 +11,9 @@ contract TokenSaleScript is Script {
     
     function run() public {
         uint256 deployer = vm.envUint("PRIVATE_KEY");
+
         vm.startBroadcast(deployer);
-        // Create an instance of the smart contract (doing that will deploy the contract when the script runs)
-        // vm.prank();
+
         MockToken token = new MockToken("Test Token", "TEST");
         uint256 preSalePrice = 20;
         uint256 publicSalePrice = 30;
@@ -40,11 +40,12 @@ contract TokenSaleScript is Script {
         );
         token.mint(address(tokenSale), 150);
         tokenSale.transitionToNextStage();
-        buyTokens(tokenSale, 100);
         vm.stopBroadcast();
         // Lets buy some tokens for some ether
+        buyTokens(tokenSale, 100);
+        require(token.balanceOf(address(this)) == 5, "Token balance should be 5");
         
-
+    
 
     }
     function buyTokens(TokenSale tokenSale,uint256 amount) public {

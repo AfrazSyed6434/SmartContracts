@@ -71,13 +71,16 @@ contract VotingSystem is Ownable, ReentrancyGuard {
         candidates[SENTINEL_ADDRESS] = SENTINEL_ADDRESS;
         votingState = VotingState.Registration;
     }
-
+    
+    /// @dev Function to register a voter
     function registerToVote() external onlyBeforeState(VotingState.Ended) {
         require(!voters[msg.sender].registered, "You are already registered");
         voters[msg.sender].registered = true;
         emit VoterRegistered(msg.sender);
     }
-
+    
+    /// @dev Function to add a candidate
+    /// @param _candidate Address of the candidate to add
     function addCandidate(address _candidate) external onlyOwner onlyBeforeState(VotingState.InProgress) {
         require(
             _candidate != address(0) && _candidate != SENTINEL_ADDRESS,
@@ -95,7 +98,9 @@ contract VotingSystem is Ownable, ReentrancyGuard {
         candidates[_candidate] = SENTINEL_ADDRESS;
         emit CandidateAdded(_candidate);
     }
-
+    
+    /// @dev Function to remove a candidate
+    /// @param _candidate Address of the candidate to remove
     function removeCandidate(address _candidate) external onlyOwner onlyBeforeState(VotingState.InProgress) {
         require(
             _candidate != address(0) && _candidate != SENTINEL_ADDRESS,
@@ -113,17 +118,21 @@ contract VotingSystem is Ownable, ReentrancyGuard {
         candidates[_candidate] = address(0);
         emit CandidateRemoved(_candidate);
     }
-
+    
+    /// @dev Function to start the election
     function startElection() external onlyOwner onlyBeforeState(VotingState.InProgress) {
         votingState = VotingState.InProgress;
         emit ElectionStarted();
     }
-
+    
+    /// @dev Function to end the election
     function endElection() external onlyOwner onlyDuringState(VotingState.InProgress) {
         votingState = VotingState.Ended;
         emit ElectionEnded();
     }
-
+    
+    /// @dev Function to cast a vote
+    /// @param _candidate Address of the candidate to vote for
     function vote(address _candidate) external nonReentrant onlyDuringState(VotingState.InProgress) onlyRegisteredVoter {
         require(!voters[msg.sender].hasVoted, "You have already voted");
         require(
@@ -135,17 +144,18 @@ contract VotingSystem is Ownable, ReentrancyGuard {
         votes[_candidate]++;
         emit Voted(msg.sender, _candidate);
     }
-
+    
+    /// @dev Function to get the winner(s) of the election
     function getWinner() external view returns (address[] memory _winners) {
         require(votingState == VotingState.Ended, "Election has not ended yet");
-
+        
         uint256 maxVotes = 0;
         uint256 totalWinners = 0;
         _winners = new address[](1); // Initialize the array
         address lastCandidate = SENTINEL_ADDRESS;
         while (candidates[lastCandidate] != SENTINEL_ADDRESS) {
             lastCandidate = candidates[lastCandidate];
-
+            
             if (votes[lastCandidate] > maxVotes) {
                 maxVotes = votes[lastCandidate];
                 _winners[0] = lastCandidate;
@@ -162,18 +172,22 @@ contract VotingSystem is Ownable, ReentrancyGuard {
                 }
             }
         }
-
+        
         return _winners;
     }
-
+    
+    /// @dev Function to get if someone is registered
     function getIfRegistered() external view returns (bool) {
         return voters[msg.sender].registered;
     }
-
+    
+    /// @dev Function to get if someone has voted
     function getIfVoted() external view returns (bool) {
         return voters[msg.sender].hasVoted;
     }
-
+    
+    /// @dev Function to check if a candidate exists
+    /// @param _candidate Address of the candidate to check
     function isCandidate(address _candidate) external view returns (bool) {
         require(
             _candidate != address(0) && _candidate != SENTINEL_ADDRESS,

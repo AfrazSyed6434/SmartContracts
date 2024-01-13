@@ -4,21 +4,23 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract TokenSale is Ownable {
-    IERC20 public token;
+/**
+ * @title TokenSale
+ * @dev A smart contract for conducting a two-phase token sale: presale and public sale.
+ */
+contract TokenSale is Ownable, ReentrancyGuard {
+
+    // Constants to represent the different stages of the sale
+
     bytes32 public constant PRE_SALE = keccak256("PRE_SALE");
     bytes32 public constant PUBLIC_SALE = keccak256("PUBLIC_SALE");
-    // uint256 public ethToTokenMultiplier;
-    // uint256 public saleMaxCap;
-    // uint256 public saleMinCap;
-    // uint256 public saleTotal = 0;
-    // uint256 public minContribution;
-    // uint256 public maxContribution;
-    SaleStage public currentStage = SaleStage.NotStarted;
-    mapping(bytes32 => Sale) public saleDetails;
-    mapping(address => mapping(bytes32 => uint256)) public saleContributions;
 
+    // ERC-20 token being sold
+    IERC20 public token;
+
+    // Enum to represent different stages of the sale
     enum SaleStage {
         NotStarted,
         PreSale,
@@ -26,15 +28,26 @@ contract TokenSale is Ownable {
         EndSale
     }
 
+    // Struct to store sale details for each stage
     struct Sale {
-        uint256 price;
-        uint256 maxSalesCap;
-        uint256 minSalesCap;
-        uint256 totalSales;
-        uint256 minContribution;
-        uint256 maxContribution;
+        uint256 price;            // Token price in Ether
+        uint256 maxSalesCap;      // Maximum Ether that can be raised in the sale
+        uint256 minSalesCap;      // Minimum Ether required to consider the sale successful
+        uint256 totalSales;       // Total tokens sold in the sale
+        uint256 minContribution;  // Minimum contribution amount per participant
+        uint256 maxContribution;  // Maximum contribution amount per participant
     }
 
+    // Current stage of the sale
+    SaleStage public currentStage = SaleStage.NotStarted;
+
+    // Mapping to store sale details for each stage
+    mapping(bytes32 => Sale) public saleDetails;
+
+    // Mapping to store contributions for each participant in each stage
+    mapping(address => mapping(bytes32 => uint256)) public saleContributions;
+
+    // Events to log major contract activities
     event TokenPurchase(
         address indexed buyer,
         uint256 ethAmount,
@@ -43,6 +56,7 @@ contract TokenSale is Ownable {
     );
     event StageChanged(SaleStage newStage);
 
+    // Modifiers for access control
     modifier onlyWhileSaleOpen() {
         require(currentStage != SaleStage.NotStarted, "Sale has not started");
         require(currentStage != SaleStage.EndSale, "Sale has ended");
@@ -59,6 +73,20 @@ contract TokenSale is Ownable {
         _;
     }
 
+    /**
+     * @dev Constructor to initialize the TokenSale contract with sale details.
+     * @param _token ERC-20 token address.
+     * @param _preSalePrice Token price during the presale.
+     * @param _publicSalePrice Token price during the public sale.
+     * @param _preSaleMinSalesCap Minimum Ether required for a successful presale.
+     * @param _publicSaleMinSalesCap Minimum Ether required for a successful public sale.
+     * @param _preSaleMaxSalesCap Maximum Ether that can be raised during the presale.
+     * @param _publicSaleMaxSalesCap Maximum Ether that can be raised during the public sale.
+     * @param _preSaleMinContribution Minimum contribution amount per participant during the presale.
+     * @param _publicSaleMinContribution Minimum contribution amount per participant during the public sale.
+     * @param _preSaleMaxContribution Maximum contribution amount per participant during the presale.
+     * @param _publicSaleMaxContribution Maximum contribution amount per participant during the public sale.
+     */
     constructor(
         IERC20 _token,
         uint256 _preSalePrice,
@@ -72,53 +100,23 @@ contract TokenSale is Ownable {
         uint256 _preSaleMaxContribution,
         uint256 _publicSaleMaxContribution
     ) Ownable(msg.sender) {
+        // Validation checks for input parameters
         require(_preSalePrice > 0, "Pre Sale Price must be greater than zero");
-        require(
-            _publicSalePrice > 0,
-            "Public Sale Price must be greater than zero"
-        );
-        require(
-            _preSaleMaxSalesCap > 0,
-            "Pre Sale max cap must be greater than zero"
-        );
-        require(
-            _publicSaleMaxSalesCap > 0,
-            "Public Sale max cap must be greater than zero"
-        );
-        require(
-            _preSaleMinSalesCap > 0,
-            "Pre Sale min cap must be greater than zero"
-        );
-        require(
-            _publicSaleMinSalesCap > 0,
-            "Public Sale min cap must be greater than zero"
-        );
-        require(
-            _preSaleMinSalesCap < _preSaleMaxSalesCap,
-            "Pre Sale min cap must be less than Pre Sale max cap"
-        );
-        require(
-            _publicSaleMinSalesCap < _publicSaleMaxSalesCap,
-            "Public Sale min cap must be less than Public Sale max cap"
-        );
-        require(
-            _preSaleMinContribution > 0,
-            "Pre Sale Min contribution must be greater than zero"
-        );
-        require(
-            _publicSaleMinContribution > 0,
-            "Public Sale Min contribution must be greater than zero"
-        );
-        require(
-            _preSaleMaxContribution >= _preSaleMinContribution,
-            "Pre Sale Max contribution must be greater than or equal to Pre Sale Min contribution"
-        );
-        require(
-            _publicSaleMaxContribution >= _publicSaleMinContribution,
-            "Public Sale Max contribution must be greater than or equal to Public Sale Min contribution"
-        );
+        require(_publicSalePrice > 0, "Public Sale Price must be greater than zero");
+        require(_preSaleMaxSalesCap > 0, "Pre Sale max cap must be greater than zero");
+        require(_publicSaleMaxSalesCap > 0, "Public Sale max cap must be greater than zero");
+        require(_preSaleMinSalesCap > 0, "Pre Sale min cap must be greater than zero");
+        require(_publicSaleMinSalesCap > 0, "Public Sale min cap must be greater than zero");
+        require(_preSaleMinSalesCap < _preSaleMaxSalesCap, "Pre Sale min cap must be less than Pre Sale max cap");
+        require(_publicSaleMinSalesCap < _publicSaleMaxSalesCap, "Public Sale min cap must be less than Public Sale max cap");
+        require(_preSaleMinContribution > 0, "Pre Sale Min contribution must be greater than zero");
+        require(_publicSaleMinContribution > 0, "Public Sale Min contribution must be greater than zero");
+        require(_preSaleMaxContribution >= _preSaleMinContribution, "Pre Sale Max contribution must be greater than or equal to Pre Sale Min contribution");
+        require(_publicSaleMaxContribution >= _publicSaleMinContribution, "Public Sale Max contribution must be greater than or equal to Public Sale Min contribution");
+
+        // Initializing the contract state
         token = _token;
-        saleDetails[PRE_SALE] = Sale({
+        saleDetails[keccak256("PRE_SALE")] = Sale({
             price: _preSalePrice,
             maxSalesCap: _preSaleMaxSalesCap,
             minSalesCap: _preSaleMinSalesCap,
@@ -126,7 +124,7 @@ contract TokenSale is Ownable {
             minContribution: _preSaleMinContribution,
             maxContribution: _preSaleMaxContribution
         });
-        saleDetails[PUBLIC_SALE] = Sale({
+        saleDetails[keccak256("PUBLIC_SALE")] = Sale({
             price: _publicSalePrice,
             maxSalesCap: _publicSaleMaxSalesCap,
             minSalesCap: _publicSaleMinSalesCap,
@@ -136,108 +134,75 @@ contract TokenSale is Ownable {
         });
     }
 
+    /**
+     * @dev Function to handle the purchase of tokens by contributors.
+     */
     function buyTokens() external payable onlyWhileSaleOpen {
-        // require(msg.value >= minContribution, "Below min contribution");
-        // require(msg.value <= maxContribution, "Exceeds max contribution");
         if (currentStage == SaleStage.PreSale) {
-            require(
-                saleContributions[msg.sender][PRE_SALE] + msg.value >=
-                    saleDetails[PRE_SALE].minContribution,
-                "Below min contribution"
-            );
-            require(
-                saleContributions[msg.sender][PRE_SALE] + msg.value <=
-                    saleDetails[PRE_SALE].maxContribution,
-                "Exceeds max contribution"
-            );
-            require(
-                msg.value % saleDetails[PRE_SALE].price == 0,
-                "Invalid contribution amount. Ensure msg.value is a multiple of the price"
-            );
-            uint256 tokensToPurchase = msg.value / saleDetails[PRE_SALE].price;
-            require(
-                saleDetails[PRE_SALE].totalSales + tokensToPurchase <=
-                    saleDetails[PRE_SALE].maxSalesCap,
-                "Exceeds max sales cap"
-            );
-            require(
-                token.balanceOf(address(this)) >= tokensToPurchase,
-                "Not enough tokens left for sale"
-            );
+            // Validation checks for presale contributions
+            require(saleContributions[msg.sender][keccak256("PRE_SALE")] + msg.value >= saleDetails[keccak256("PRE_SALE")].minContribution, "Below min contribution");
+            require(saleContributions[msg.sender][keccak256("PRE_SALE")] + msg.value <= saleDetails[keccak256("PRE_SALE")].maxContribution, "Exceeds max contribution");
+            require(msg.value % saleDetails[keccak256("PRE_SALE")].price == 0, "Invalid contribution amount. Ensure msg.value is a multiple of the price");
 
+            // Calculate tokens to be purchased and perform necessary validations
+            uint256 tokensToPurchase = msg.value / saleDetails[keccak256("PRE_SALE")].price;
+            require(saleDetails[keccak256("PRE_SALE")].totalSales + tokensToPurchase <= saleDetails[keccak256("PRE_SALE")].maxSalesCap, "Exceeds max sales cap");
+            require(token.balanceOf(address(this)) >= tokensToPurchase, "Not enough tokens left for sale");
+
+            // Transfer tokens to the buyer and update sale-related data
             token.transfer(msg.sender, tokensToPurchase);
-            saleContributions[msg.sender][PRE_SALE] += msg.value;
-            saleDetails[PRE_SALE].totalSales += tokensToPurchase;
+            saleContributions[msg.sender][keccak256("PRE_SALE")] += msg.value;
+            saleDetails[keccak256("PRE_SALE")].totalSales += tokensToPurchase;
 
-            emit TokenPurchase(
-                msg.sender,
-                msg.value,
-                tokensToPurchase,
-                currentStage
-            );
+            // Emit TokenPurchase event
+            emit TokenPurchase(msg.sender, msg.value, tokensToPurchase, currentStage);
         } else {
-            require(
-                saleContributions[msg.sender][PUBLIC_SALE] + msg.value >=
-                    saleDetails[PUBLIC_SALE].minContribution,
-                "Below min contribution"
-            );
-            require(
-                saleContributions[msg.sender][PUBLIC_SALE] + msg.value <=
-                    saleDetails[PUBLIC_SALE].maxContribution,
-                "Exceeds max contribution"
-            );
-            require(
-                msg.value % saleDetails[PUBLIC_SALE].price == 0,
-                "Invalid contribution amount. Ensure msg.value is a multiple of the price"
-            );
-            uint256 tokensToPurchase = msg.value /
-                saleDetails[PUBLIC_SALE].price;
-            require(
-                saleDetails[PUBLIC_SALE].totalSales + tokensToPurchase <=
-                    saleDetails[PUBLIC_SALE].maxSalesCap,
-                "Exceeds max sales cap"
-            );
-            require(
-                token.balanceOf(address(this)) >= tokensToPurchase,
-                "Not enough tokens left for sale"
-            );
+            // Validation checks for public sale contributions
+            require(saleContributions[msg.sender][keccak256("PUBLIC_SALE")] + msg.value >= saleDetails[keccak256("PUBLIC_SALE")].minContribution, "Below min contribution");
+            require(saleContributions[msg.sender][keccak256("PUBLIC_SALE")] + msg.value <= saleDetails[keccak256("PUBLIC_SALE")].maxContribution, "Exceeds max contribution");
+            require(msg.value % saleDetails[keccak256("PUBLIC_SALE")].price == 0, "Invalid contribution amount. Ensure msg.value is a multiple of the price");
 
+            // Calculate tokens to be purchased and perform necessary validations
+            uint256 tokensToPurchase = msg.value / saleDetails[keccak256("PUBLIC_SALE")].price;
+            require(saleDetails[keccak256("PUBLIC_SALE")].totalSales + tokensToPurchase <= saleDetails[keccak256("PUBLIC_SALE")].maxSalesCap, "Exceeds max sales cap");
+            require(token.balanceOf(address(this)) >= tokensToPurchase, "Not enough tokens left for sale");
+
+            // Transfer tokens to the buyer and update sale-related data
             token.transfer(msg.sender, tokensToPurchase);
-            saleContributions[msg.sender][PUBLIC_SALE] += msg.value;
-            saleDetails[PUBLIC_SALE].totalSales += tokensToPurchase;
+            saleContributions[msg.sender][keccak256("PUBLIC_SALE")] += msg.value;
+            saleDetails[keccak256("PUBLIC_SALE")].totalSales += tokensToPurchase;
 
-            emit TokenPurchase(
-                msg.sender,
-                msg.value,
-                tokensToPurchase,
-                currentStage
-            );
+            // Emit TokenPurchase event
+            emit TokenPurchase(msg.sender, msg.value, tokensToPurchase, currentStage);
         }
     }
 
+    /**
+     * @dev Function to transition the sale to the next stage. Only callable by the owner.
+     */
     function transitionToNextStage() external onlyOwner {
         require(currentStage != SaleStage.EndSale, "Sale has already ended");
+
         if (currentStage == SaleStage.NotStarted) {
-            require(
-                token.balanceOf(address(this)) >=
-                    saleDetails[PRE_SALE].maxSalesCap,
-                "Not enough tokens to start pre-sale"
-            );
+            // Ensure enough tokens are available to start the presale
+            require(token.balanceOf(address(this)) >= saleDetails[keccak256("PRE_SALE")].maxSalesCap, "Not enough tokens to start pre-sale");
             currentStage = SaleStage.PreSale;
         } else if (currentStage == SaleStage.PreSale) {
-            require(
-                token.balanceOf(address(this)) >=
-                    saleDetails[PUBLIC_SALE].maxSalesCap,
-                "Not enough tokens to start public-sale"
-            );
+            // Ensure enough tokens are available to start the public sale
+            require(token.balanceOf(address(this)) >= saleDetails[keccak256("PUBLIC_SALE")].maxSalesCap, "Not enough tokens to start public-sale");
             currentStage = SaleStage.PublicSale;
         } else if (currentStage == SaleStage.PublicSale) {
+            // Transition to the EndSale stage
             currentStage = SaleStage.EndSale;
         }
+
+        // Emit StageChanged event
         emit StageChanged(currentStage);
     }
 
-    // In case tokens are sent to this contract by mistake, the admin can withdraw them
+    /**
+     * @dev Function to withdraw excess tokens after the sale has ended. Only callable by the owner.
+     */
     function withdrawExcessTokens() external onlyAdmin onlyAfterSale {
         uint256 excessTokens = token.balanceOf(address(this));
         if (excessTokens > 0) {
@@ -245,75 +210,68 @@ contract TokenSale is Ownable {
         }
     }
 
-    // In case there is remaining ether in the contract, the admin can withdraw it after the sale has ended
+    /**
+     * @dev Function to withdraw Ether from the contract after the sale has ended. Only callable by the owner.
+     * @param amount Amount of Ether to withdraw.
+     */
     function withdrawEth(uint256 amount) external onlyAdmin {
-        require(
-            currentStage == SaleStage.PublicSale ||
-                currentStage == SaleStage.EndSale,
-            "Cannot withdraw ether before pre-sale has ended"
-        );
+        require(currentStage == SaleStage.PublicSale || currentStage == SaleStage.EndSale, "Cannot withdraw ether before pre-sale has ended");
+
         uint256 availableEther;
+
         if (currentStage == SaleStage.PublicSale) {
-            require(
-                saleDetails[PRE_SALE].totalSales >=
-                    saleDetails[PRE_SALE].minSalesCap,
-                "Pre-sale minimum sale cap not reached"
-            );
-            availableEther =
-                address(this).balance -
-                (saleDetails[PUBLIC_SALE].totalSales *
-                    saleDetails[PUBLIC_SALE].price);
+            // Ensure the presale minimum sale cap is reached
+            require(saleDetails[keccak256("PRE_SALE")].totalSales >= saleDetails[keccak256("PRE_SALE")].minSalesCap, "Pre-sale minimum sale cap not reached");
+
+            // Calculate available Ether for withdrawal
+            availableEther = address(this).balance - (saleDetails[keccak256("PUBLIC_SALE")].totalSales * saleDetails[keccak256("PUBLIC_SALE")].price);
         } else {
-            require(
-                saleDetails[PUBLIC_SALE].totalSales >=
-                    saleDetails[PUBLIC_SALE].minSalesCap ||
-                    saleDetails[PRE_SALE].totalSales >=
-                    saleDetails[PRE_SALE].minSalesCap,
-                "Minimum sale cap not reached"
-            );
-            if (
-                saleDetails[PUBLIC_SALE].totalSales >=
-                saleDetails[PUBLIC_SALE].minSalesCap &&
-                saleDetails[PRE_SALE].totalSales >=
-                saleDetails[PRE_SALE].minSalesCap
-            ) {
+            // Ensure the minimum sale cap for either the presale or public sale is reached
+            require((saleDetails[keccak256("PUBLIC_SALE")].totalSales >= saleDetails[keccak256("PUBLIC_SALE")].minSalesCap) || (saleDetails[keccak256("PRE_SALE")].totalSales >= saleDetails[keccak256("PRE_SALE")].minSalesCap), "Minimum sale cap not reached");
+
+            if (saleDetails[keccak256("PUBLIC_SALE")].totalSales >= saleDetails[keccak256("PUBLIC_SALE")].minSalesCap && saleDetails[keccak256("PRE_SALE")].totalSales >= saleDetails[keccak256("PRE_SALE")].minSalesCap) {
+                // Calculate available Ether for withdrawal
                 availableEther = address(this).balance;
             } else {
-                if (
-                    saleDetails[PUBLIC_SALE].totalSales >=
-                    saleDetails[PUBLIC_SALE].minSalesCap
-                ) {
-                    availableEther =
-                        address(this).balance -
-                        (saleDetails[PRE_SALE].totalSales *
-                            saleDetails[PRE_SALE].price);
+                // Calculate available Ether for withdrawal based on the stage with a successful sale
+                if (saleDetails[keccak256("PUBLIC_SALE")].totalSales >= saleDetails[keccak256("PUBLIC_SALE")].minSalesCap) {
+                    availableEther = address(this).balance - (saleDetails[keccak256("PRE_SALE")].totalSales * saleDetails[keccak256("PRE_SALE")].price);
                 }
-                if (
-                    saleDetails[PRE_SALE].totalSales >=
-                    saleDetails[PRE_SALE].minSalesCap
-                ) {
-                    availableEther =
-                        address(this).balance -
-                        (saleDetails[PUBLIC_SALE].totalSales *
-                            saleDetails[PUBLIC_SALE].price);
+                if (saleDetails[keccak256("PRE_SALE")].totalSales >= saleDetails[keccak256("PRE_SALE")].minSalesCap) {
+                    availableEther = address(this).balance - (saleDetails[keccak256("PUBLIC_SALE")].totalSales * saleDetails[keccak256("PUBLIC_SALE")].price);
                 }
             }
         }
+
+        // Ensure requested withdrawal amount does not exceed available Ether
         require(amount <= availableEther, "Not enough ether");
+
+        // Transfer Ether to the owner
         (bool success, ) = payable(msg.sender).call{value: amount}("");
         require(success, "Ether transfer failed");
     }
 
+    /**
+     * @dev Function to add tokens to the sale. Only callable by the owner.
+     * @param _amount Amount of tokens to add.
+     */
     function addTokens(uint256 _amount) external onlyAdmin {
+        // Transfer tokens from the owner to the contract
         token.transferFrom(msg.sender, address(this), _amount);
     }
 
+    /**
+     * @dev Function to claim a refund after the sale has ended. Only callable by participants and if the sale failed to meet the minimum sales cap.
+     */
     function claimRefund() external {
+        // Ensure at least presale is over
         require(
             currentStage == SaleStage.EndSale ||
                 currentStage == SaleStage.PublicSale,
             "Can't claim refund yet"
         );
+
+        // Ensure the sale failed to meet the minimum sales cap
         require(
             saleContributions[msg.sender][PRE_SALE] > 0 ||
                 saleContributions[msg.sender][PUBLIC_SALE] > 0,
@@ -324,6 +282,7 @@ contract TokenSale is Ownable {
         if (
             saleDetails[PRE_SALE].totalSales < saleDetails[PRE_SALE].minSalesCap
         ) {
+            // If the presale failed to meet the minimum sales cap, refund the entire presale contribution
             availableRefundAmount +=
                 saleContributions[msg.sender][PRE_SALE] ;
             tokensToClaim +=
@@ -334,6 +293,7 @@ contract TokenSale is Ownable {
             saleDetails[PUBLIC_SALE].totalSales <
             saleDetails[PUBLIC_SALE].minSalesCap
         ) {
+            // If the public sale failed to meet the minimum sales cap and has ended, refund the entire public sale contribution
             if (currentStage == SaleStage.EndSale) {
                 availableRefundAmount +=
                     saleContributions[msg.sender][PUBLIC_SALE] ;
@@ -343,6 +303,8 @@ contract TokenSale is Ownable {
             }
         }
         require(availableRefundAmount > 0, "No refund available. All sales met min cap or sale has not ended");
+
+        // Ensure the user has approved the contract to transfer back the tokens
         require(
             token.allowance(msg.sender, address(this)) >= tokensToClaim,
             "Approve tokenSale to transfer tokens back"
@@ -355,7 +317,12 @@ contract TokenSale is Ownable {
         saleContributions[msg.sender][PRE_SALE] = 0;
         saleContributions[msg.sender][PUBLIC_SALE] = 0;
     }
-
+    
+    /**
+     * @dev Function to get the total contribution of a user in each stage.
+     * @param _user Address of the user.
+     * @return Total contribution of the user in the presale.
+     */
     function getContribution(
         address _user
     ) external view returns (uint256, uint256) {
@@ -364,8 +331,12 @@ contract TokenSale is Ownable {
             saleContributions[_user][PUBLIC_SALE]
         );
     }
-
-    function getCurrentPrice() external view returns (uint256) {
+    
+    /**
+     * @dev Function to get the current price of the token.
+     * @return price Current price of the token.
+     */
+    function getCurrentPrice() external view returns (uint256 price) {
         if (currentStage == SaleStage.PreSale) {
             return saleDetails[PRE_SALE].price;
         } else if (currentStage == SaleStage.PublicSale) {
